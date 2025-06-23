@@ -18,6 +18,13 @@ export default class LobbyComponent extends Component {
         this.wsClient = props.wsClient;
         this.stateManager = props.stateManager;
         
+        // Bind methods explicitly
+        this.toggleCreateRoom = this.toggleCreateRoom.bind(this);
+        this.handleCreateRoom = this.handleCreateRoom.bind(this);
+        this.handleJoinRoom = this.handleJoinRoom.bind(this);
+        this.handleLeaveRoom = this.handleLeaveRoom.bind(this);
+        this.loadAvailableRooms = this.loadAvailableRooms.bind(this);
+        
         this.setupSubscriptions();
     }
 
@@ -83,7 +90,8 @@ export default class LobbyComponent extends Component {
         }
     }
 
-    toggleCreateRoom = () => {
+    toggleCreateRoom() {
+        console.log('toggleCreateRoom called!');
         this.setState({ 
             showCreateRoom: !this.state.showCreateRoom,
             newRoomName: '',
@@ -91,7 +99,7 @@ export default class LobbyComponent extends Component {
         });
     }
 
-    handleJoinRoom = async (e) => {
+    async handleJoinRoom(e) {
         const roomId = e.target.dataset.roomId;
         const playerName = this.state.playerName.trim();
         
@@ -112,7 +120,7 @@ export default class LobbyComponent extends Component {
         }
     }
 
-    handleCreateRoom = async () => {
+    async handleCreateRoom() {
         const roomName = this.state.newRoomName.trim();
         const playerName = this.state.playerName.trim();
         
@@ -160,7 +168,7 @@ export default class LobbyComponent extends Component {
         }
     }
 
-    handleLeaveRoom = () => {
+    handleLeaveRoom() {
         this.wsClient.disconnect();
         this.stateManager.dispatch({ type: 'LEAVE_ROOM' });
     }
@@ -229,10 +237,12 @@ export default class LobbyComponent extends Component {
                         value: this.state.newRoomName,
                         maxlength: 30
                     }),
-                    this.h('select', { class: 'max-players-select' },
+                    this.h('select', { 
+                        class: 'max-players-select'
+                    },
                         this.h('option', { value: 2 }, '2 Players'),
                         this.h('option', { value: 3 }, '3 Players'),
-                        this.h('option', { value: 4, selected: true }, '4 Players')
+                        this.h('option', { value: 4, selected: this.state.maxPlayers === 4 }, '4 Players')
                     ),
                     this.h('div', { class: 'form-buttons' },
                         this.h('button', {

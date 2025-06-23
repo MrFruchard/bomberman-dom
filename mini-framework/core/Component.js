@@ -151,9 +151,43 @@ export class Component {
 
     // Ajouter un écouteur d'événement
     addEventListener(selector, eventType, callback) {
-        const element = typeof selector === 'string' ? this.find(selector) : selector;
-        if (element) {
-            return window.MiniFramework.events.on(element, eventType, callback);
+        if (typeof selector === 'string') {
+            // Utiliser la délégation d'événements pour les sélecteurs CSS
+            const delegatedCallback = (event) => {
+                if (this.element && this.element.contains(event.target)) {
+                    const matchingElement = event.target.closest(selector);
+                    if (matchingElement && this.element.contains(matchingElement)) {
+                        // Créer un événement enrichi similaire à l'EventHandler
+                        const enhancedEvent = {
+                            ...event,
+                            target: matchingElement,
+                            originalTarget: event.target,
+                            stop() {
+                                event.stopPropagation();
+                                event.preventDefault();
+                            },
+                            prevent() {
+                                event.preventDefault();
+                            }
+                        };
+                        callback(enhancedEvent);
+                    }
+                }
+            };
+            
+            // Attacher l'événement au document pour la délégation
+            document.addEventListener(eventType, delegatedCallback, true);
+            
+            // Retourner une fonction de nettoyage
+            return () => {
+                document.removeEventListener(eventType, delegatedCallback, true);
+            };
+        } else {
+            // Pour les éléments directs
+            const element = selector;
+            if (element) {
+                return window.MiniFramework.events.on(element, eventType, callback);
+            }
         }
         return null;
     }

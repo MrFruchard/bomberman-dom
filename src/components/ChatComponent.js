@@ -303,7 +303,8 @@ export default class ChatComponent extends Component {
         
         return this.h('button', {
             class: `chat-toggle-button ${hasNewMessages ? 'has-notifications' : ''}`,
-            title: 'Open chat'
+            title: 'Open chat',
+            onclick: this.toggleChat
         },
             hasNewMessages ? '💬●' : '💬'
         );
