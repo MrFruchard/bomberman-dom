@@ -349,7 +349,8 @@ func updateRoom(room *GameRoom) {
 	case "waiting":
 		// Check if we should start countdown
 		if len(room.Players) >= 2 && !room.StartTime.IsZero() {
-			if now.Sub(room.StartTime) >= WAITING_DURATION {
+			timeElapsed := now.Sub(room.StartTime)
+			if timeElapsed >= WAITING_DURATION {
 				room.State = "countdown"
 				room.CountdownStart = now
 				
@@ -360,12 +361,24 @@ func updateRoom(room *GameRoom) {
 						"duration": COUNTDOWN_DURATION.Milliseconds(),
 					},
 				}, "")
+			} else {
+				// Send wait timer updates every second
+				if int(timeElapsed.Seconds()) != int((timeElapsed - time.Second).Seconds()) {
+					timeRemaining := WAITING_DURATION - timeElapsed
+					go broadcastToRoom(room, Message{
+						Type: "waitTimer",
+						Data: map[string]interface{}{
+							"timeRemaining": timeRemaining.Milliseconds(),
+						},
+					}, "")
+				}
 			}
 		}
 
 	case "countdown":
 		// Check if countdown is finished
-		if now.Sub(room.CountdownStart) >= COUNTDOWN_DURATION {
+		timeElapsed := now.Sub(room.CountdownStart)
+		if timeElapsed >= COUNTDOWN_DURATION {
 			room.State = "playing"
 			room.StartTime = now
 			
@@ -376,6 +389,17 @@ func updateRoom(room *GameRoom) {
 					"state": "playing",
 				},
 			}, "")
+		} else {
+			// Send countdown updates every second
+			if int(timeElapsed.Seconds()) != int((timeElapsed - time.Second).Seconds()) {
+				timeRemaining := COUNTDOWN_DURATION - timeElapsed
+				go broadcastToRoom(room, Message{
+					Type: "countdown",
+					Data: map[string]interface{}{
+						"timeRemaining": timeRemaining.Milliseconds(),
+					},
+				}, "")
+			}
 		}
 
 	case "playing":

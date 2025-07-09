@@ -5,18 +5,21 @@ import Mini from '../mini-framework/index.js';
 import WebSocketClient from './WebSocketClient.js';
 import MultiplayerStateManager from './MultiplayerStateManager.js';
 import MultiplayerGameLoop from './MultiplayerGameLoop.js';
-import LobbyComponent from './components/LobbyComponent.js';
+import NicknameEntryComponent from './components/NicknameEntryComponent.js';
+import WaitingRoomComponent from './components/WaitingRoomComponent.js';
 import ChatComponent from './components/ChatComponent.js';
-import MultiplayerGameComponent from './components/MultiplayerGameComponent.js';
+import GameComponent from './components/GameComponent.js';
 
 export default class MultiplayerBombermanApp extends Component {
     constructor() {
         super();
         
         this.state = {
-            currentView: 'lobby', // 'lobby', 'game'
+            currentView: 'nickname', // 'nickname', 'waiting', 'game'
             initialized: false,
-            error: null
+            error: null,
+            playerName: '',
+            connectionState: 'disconnected'
         };
         
         // Initialize core systems
@@ -54,6 +57,7 @@ export default class MultiplayerBombermanApp extends Component {
         // Connection events
         this.wsClient.on('connected', (data) => {
             console.log('Connected to server');
+            this.setState({ connectionState: 'connected' });
             this.stateManager.dispatch({
                 type: 'CONNECTION_STATE_CHANGE',
                 payload: 'connected'
@@ -87,6 +91,7 @@ export default class MultiplayerBombermanApp extends Component {
         // Game events
         this.wsClient.on('welcome', (message) => {
             console.log('Welcome message received:', message.data);
+            this.setState({ currentView: 'waiting' });
             this.stateManager.dispatch({
                 type: 'JOIN_ROOM',
                 payload: message.data
@@ -138,11 +143,19 @@ export default class MultiplayerBombermanApp extends Component {
         this.wsClient.on('countdown', (message) => {
             this.stateManager.dispatch({
                 type: 'UPDATE_COUNTDOWN',
-                payload: message.data.duration
+                payload: message.data.timeRemaining || message.data.duration
+            });
+        });
+        
+        this.wsClient.on('waitTimer', (message) => {
+            this.stateManager.dispatch({
+                type: 'UPDATE_WAIT_TIMER',
+                payload: message.data.timeRemaining
             });
         });
 
         this.wsClient.on('gameStarted', (message) => {
+            this.setState({ currentView: 'game' });
             this.stateManager.dispatch({
                 type: 'GAME_STARTED',
                 payload: message.data
@@ -171,11 +184,11 @@ export default class MultiplayerBombermanApp extends Component {
             console.log('Game state changed to:', gameState);
             
             if (gameState === 'lobby' || gameState === 'countdown') {
-                this.setState({ currentView: 'lobby' });
+                this.setState({ currentView: 'waiting' });
             } else if (gameState === 'playing' || gameState === 'finished') {
                 this.setState({ currentView: 'game' });
             } else if (gameState === 'menu') {
-                this.setState({ currentView: 'lobby' });
+                this.setState({ currentView: 'nickname' });
             }
             
             this.update();
@@ -193,10 +206,41 @@ export default class MultiplayerBombermanApp extends Component {
                 console.log('Joined room:', room.id);
             } else {
                 console.log('Left room');
-                this.setState({ currentView: 'lobby' });
+                this.setState({ currentView: 'nickname' });
             }
             this.update();
         });
+    }
+
+    // Connect to server with player name
+    async connectToServer(playerName) {
+        try {
+            this.setState({ 
+                playerName,
+                connectionState: 'connecting',
+                error: null
+            });
+            
+            await this.wsClient.connect(playerName);
+            
+        } catch (error) {
+            console.error('Connection failed:', error);
+            this.setState({ 
+                error: error.message,
+                connectionState: 'disconnected'
+            });
+        }
+    }
+
+    // Leave room and return to nickname entry
+    leaveRoom() {
+        this.wsClient.disconnect();
+        this.setState({ 
+            currentView: 'nickname',
+            playerName: '',
+            connectionState: 'disconnected'
+        });
+        this.stateManager.dispatch({ type: 'LEAVE_ROOM' });
     }
 
     afterMount() {
@@ -307,37 +351,59 @@ export default class MultiplayerBombermanApp extends Component {
 
     renderCurrentView() {
         switch (this.state.currentView) {
-            case 'lobby':
-                return this.renderLobbyComponent();
+            case 'nickname':
+                return this.renderNicknameEntry();
+            case 'waiting':
+                return this.renderWaitingRoom();
             case 'game':
                 return this.renderGameComponent();
             default:
-                return this.renderLobbyComponent();
+                return this.renderNicknameEntry();
         }
     }
 
-    renderLobbyComponent() {
-        // Create and mount lobby component
-        if (!this.lobbyComponent) {
-            this.lobbyComponent = new LobbyComponent({
-                wsClient: this.wsClient,
-                stateManager: this.stateManager
+    renderNicknameEntry() {
+        // Create and mount nickname entry component
+        if (!this.nicknameComponent) {
+            this.nicknameComponent = new NicknameEntryComponent({
+                onConnect: (name) => this.connectToServer(name),
+                connectionState: this.state.connectionState,
+                error: this.state.error
             });
         }
         
-        return this.h('div', { class: 'lobby-view' },
-            // The lobby component will render its own content
-            this.lobbyComponent.render()
+        return this.h('div', { class: 'nickname-view' },
+            this.nicknameComponent.render()
+        );
+    }
+
+    renderWaitingRoom() {
+        // Create and mount waiting room component
+        if (!this.waitingComponent) {
+            this.waitingComponent = new WaitingRoomComponent({
+                currentRoom: this.stateManager.getState('currentRoom'),
+                players: this.stateManager.getState('players'),
+                gameState: this.stateManager.getState('gameState'),
+                countdownTimer: this.stateManager.getState('countdownTimer'),
+                waitTimer: this.stateManager.getState('waitTimer'),
+                onLeaveRoom: () => this.leaveRoom(),
+                onToggleChat: () => this.stateManager.dispatch({ type: 'TOGGLE_CHAT' })
+            });
+        }
+        
+        return this.h('div', { class: 'waiting-view' },
+            this.waitingComponent.render()
         );
     }
 
     renderGameComponent() {
         // Create and mount game component
         if (!this.gameComponent) {
-            this.gameComponent = new MultiplayerGameComponent({
-                stateManager: this.stateManager,
-                wsClient: this.wsClient,
-                gameLoop: this.gameLoop
+            this.gameComponent = new GameComponent({
+                players: this.stateManager.getState('players'),
+                gameState: this.stateManager.getState('gameState'),
+                onPlayerInput: (input) => this.wsClient.sendPlayerInput(input),
+                onToggleChat: () => this.stateManager.dispatch({ type: 'TOGGLE_CHAT' })
             });
         }
         
